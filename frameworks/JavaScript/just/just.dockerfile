@@ -1,7 +1,6 @@
-FROM debian:buster-slim AS pre-build
-RUN apt update
-RUN apt upgrade -y
-RUN apt install -y g++ curl make tar gzip libfindbin-libs-perl
+FROM ubuntu:22.04 AS pre-build
+RUN apt-get update -y
+RUN apt-get install -qy g++ curl make tar gzip libfindbin-libs-perl
 
 FROM pre-build AS builder
 WORKDIR /build
@@ -12,9 +11,6 @@ ENV JUST_TARGET=/build/just
 WORKDIR /app
 COPY techempower.js util.js tfb.config.js ./
 RUN just build --clean --cleanall --static techempower.js
-
-FROM gcr.io/distroless/static:latest
 WORKDIR /app
-COPY --from=builder /app/techempower /app/techempower
 COPY fortunes.html /app/fortunes.html
 CMD ["./techempower"]
