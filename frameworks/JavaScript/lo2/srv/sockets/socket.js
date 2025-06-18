@@ -7,7 +7,6 @@ import { RequestParser } from '../picohttpparser/pico.requestparser.js'
 // import '../picohttpparser/pico.requestparser.template.js'
 
 const { Readable } = Loop
-const { ptr } = lo
 const { recv2, close, send2 } = net
 
 /**
@@ -29,7 +28,7 @@ export class Socket {
    * @param {number} fd
    */
   constructor(loop, fd, parser_bufsize = 64 * 1024, parser_max_headers = 18) {
-    this.parser = new RequestParser(ptr(new Uint8Array(parser_bufsize)), parser_max_headers)
+    this.parser = new RequestParser(new Uint8Array(parser_bufsize), parser_max_headers)
     this.fd = fd
     this.loop = loop
     Socket.sockets[fd] = this
@@ -55,8 +54,8 @@ export class Socket {
   write(pointer, size){
     return Socket.write(this.fd, pointer, size, 0)
   }
-  read(size = this.parser.rb.size) {
-    return Socket.read(this.fd, this.parser.rb.ptr, size, 0)
+  read(size = this.parser.rb_size) {
+    return Socket.read(this.fd, this.parser.rb_ptr, size, 0)
   }
   close() {
     const { fd } = this
