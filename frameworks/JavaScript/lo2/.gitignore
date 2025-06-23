@@ -1,2 +1,5 @@
 lib
 lo2
+tools
+log
+*-v8.log

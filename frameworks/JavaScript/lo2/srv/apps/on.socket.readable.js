@@ -1,4 +1,5 @@
 import { Loop } from 'lib/loop.js'
+// import { App } from './app.js'
 
 // TODO: generate handler with relevant steps
 /**
@@ -8,6 +9,7 @@ import { Loop } from 'lib/loop.js'
 export function on_socket_readable (on_request, socket) {
   /** @type {0 | -1} */
   let rc = -1
+  // const start = lo.core.times(App.time)
   let bytes_to_parse = socket.read()
   switch (bytes_to_parse) {
     case 0:
@@ -40,5 +42,7 @@ export function on_socket_readable (on_request, socket) {
       break
     }
   }
+  // App.route_total_time += lo.core.times(App.time) - start
+  // App.route_call_count++
   return rc
 }

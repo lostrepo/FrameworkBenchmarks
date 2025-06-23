@@ -1,6 +1,6 @@
 import { CPUS, SERVER_ROOT_DIR } from './env/env.js'
 
-const { setenv, cstr, ptr, library, args: [proc_first_arg],
+const { setenv, cstr, ptr, library, args,
   core: { waitpid, WNOHANG, execvp, sysconf, fork }
  } = lo
 const _SC_NPROCESSORS_ONLN = library('system')?.system._SC_NPROCESSORS_ONLN
@@ -81,7 +81,7 @@ function exec_env (name, vargs, env, status = new Int32Array(2)) {
 }
 
 function fork_proc(env){
-  const [_, pid] = exec_env(proc_first_arg, [],
+  const [_, pid] = exec_env(args[0], args.slice(1),//.concat(['--log-all']),
     Object.keys(env).map((k) => [k, env[k]]))
   instances.set(pid, env)
 }

@@ -33,16 +33,17 @@ export class RequestParser {
      return parse_request(this.#rb_ptr,len,ptr+0,ptr+8,ptr+16,ptr+24,ptr+32,ptr+56,ptr+40,0)
    }
 
+   // single SP between method and path
+   get method_n_path_u8_view () {
+    return this.rb.subarray(0, this.#ctx[2] + this.#ctx[6] + 1)
+   }
+
    get method_u8_view () {
-     const { rb, rb_ptr } = this
-     const offset = this.#ctx[0] + 4294967296 * this.#ctx[1] - rb_ptr
-     return rb.subarray(offset,offset+this.#ctx[2])
+     return this.rb.subarray(0, this.#ctx[2])
    }
 
    get path_u8_view () {
-     const { rb, rb_ptr } = this
-     const offset = this.#ctx[4] + 4294967296 * this.#ctx[5] - rb_ptr
-     return rb.subarray(offset,offset+this.#ctx[6])
+     return this.rb.subarray(this.#ctx[2] + 1, this.#ctx[2] + 1 + this.#ctx[6])
    }
 
    get method () {

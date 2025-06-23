@@ -6,24 +6,24 @@ import { loop } from '../loop/loop.js'
 import { noop } from '../utils/noop.js'
 import { TrieBasedRouter } from '../routing/trie.based.router.js'
 import { Socket } from '../sockets/socket.js'
+// import { CHILD_INDEX } from '../env/env.js'
 // import { log } from '../utils/log.js'
 
 const { utf8_encode_into_ptr, get_address } = lo
 
 export class App {
+  // TODO: should try using something better for searching byte array matches
   #router = new TrieBasedRouter()
   #on_socket_readable = on_socket_readable.bind(null, (socket, parsed_bytes) => {
     /** @type {0 | -1} */
     let rc = -1
-    const { method_u8_view, path_u8_view } = socket.parser
-    const { parts, fns: [fn] } = this.#router.find_u8(method_u8_view, path_u8_view)
+    const { method_n_path_u8_view} = socket.parser
+    const { parts, fns: [fn] } = this.#router.find_u8_experimental(method_n_path_u8_view)
     switch (fn) {
       case undefined:
       break
       default:
-      rc = fn((status_code, headers, body) =>
-        this.#append_http_frame(socket.fd, status_code, headers, body),
-        parts)
+      rc = fn(this.#append_http_frame.bind(this, socket.fd), parts)
       break
     }
     return rc
@@ -31,20 +31,20 @@ export class App {
   get on_socket_readable(){ return this.#on_socket_readable }
   set on_socket_readable(on_socket_readable){ this.#on_socket_readable = on_socket_readable }
   get router(){ return this.#router }
-  set router(router){ this.#router = router }
   /**@type {Map<string, Server>} */
   #servers = new Map()
   #loop = loop
   get loop(){ return this.#loop }
-  #max_fds = 128_000
-  #write_fds_pending = new Uint8Array(this.#max_fds)
+  #max_fds = 8 * 64 * 64
   /**@type {{ status_code: number, headers: string, body: string}[][]}*/
   #http_write_queue = Array.from({ length: this.#max_fds }).map(() => [])
   /**
    * @param {number} fd
    */
   #append_http_frame(fd, status_code = 200, headers = '', body = ''){
-    this.#write_fds_pending[fd] = 1
+    // TODO: found out that fd is not a Smi for some reason
+    // and this.#http_write_queue[fd] access is deoptimized
+    // but it's not the most expensive part so maybe will take a look later
     this.#http_write_queue[fd].push({
       status_code,
       headers,
@@ -110,27 +110,51 @@ content-length: ${'0'.padEnd(this.#content_length_value_size, ' ')}\r
   #stimer_handler = () => {
     const fns = this.#stimer_callbacks
     for (let i = 0; i < fns.length; i++) fns[i]()
+//     console.log(`${CHILD_INDEX}:
+// write_frames ${App.write_frames_call_count}_${App.write_frames_total_time}
+// read ${App.read_call_count}_${App.read_total_time}
+// parse ${App.parse_call_count}_${App.parse_total_time}
+// route ${App.route_call_count}_${App.route_total_time}
+// `)
+//     App.write_frames_total_time = 0
+//     App.write_frames_call_count = 0
+//     App.read_call_count = 0
+//     App.read_total_time = 0
+//     App.parse_call_count = 0
+//     App.parse_total_time = 0
+//     App.route_call_count = 0
+//     App.route_total_time = 0
   }
   #stimer = null
+  // static time = new Uint32Array(9)
+  // static write_frames_total_time = 0
+  // static write_frames_call_count = 0
+  // static read_total_time = 0
+  // static read_call_count = 0
+  // static parse_total_time = 0
+  // static parse_call_count = 0
+  // static route_total_time = 0
+  // static route_call_count = 0
   #write_frames(){
     const sockets = Socket.sockets
     const max_fd = sockets.length
     const buf_ptr = this.#buf_ptr
-    const pending = this.#write_fds_pending
     const write_queue = this.#http_write_queue
     const header_prefix_size = this.#http_frame_header_prefix_size
     const header_prefix_buf = this.#http_frame_header_prefix
     const buf = this.#buf
 
+    // const start = lo.core.times(App.time)
     for (let fd = 0; fd < max_fd; fd++) {
-      switch(pending[fd]){
+      const arr = write_queue[fd]
+      const length = arr.length
+      switch(length){
         case 0:
         break
-        case 1:{
+        default:{
           const socket = sockets[fd]
-          const arr = write_queue[fd]
           let size = 0
-          for (let i = 0; i < arr.length; i++) {
+          for (let i = 0; i < length; i++) {
             const { body, headers, status_code } = arr[i]
             const header_size = header_prefix_size +
               utf8_encode_into_ptr(headers, buf_ptr + size + header_prefix_size)
@@ -144,15 +168,15 @@ content-length: ${'0'.padEnd(this.#content_length_value_size, ' ')}\r
             size += body_size + header_size
           }
           arr.length = 0
-          pending[fd] = 0
           // TODO: if write fails/is partial store buffer in some array by fd as index
           // TODO: track fd buffered amount (probably close overoffending fds)
           // TODO: track total buffered amount (find and close overoffending fds)
           socket.write(buf_ptr, size)
-        break
-        }
+        break}
       }
     }
+    // App.write_frames_total_time += lo.core.times(App.time) - start
+    // App.write_frames_call_count++
   }
 
   /**
@@ -187,7 +211,9 @@ content-length: ${'0'.padEnd(this.#content_length_value_size, ' ')}\r
   start(){
     this.#loop_started = true
     this.#stimer = new Timer(this.#loop, 1_000, this.#stimer_handler)
-    while (this.#loop_started && this.#loop.poll() > 0) this.#write_frames()
+    const poll = this.#loop.poll.bind(this.#loop)
+    const write_frames = this.#write_frames.bind(this)
+    while (this.#loop_started && poll() > 0) write_frames()
     this.#loop_started = false
     this.#stimer?.close()
     return this

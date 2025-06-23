@@ -1,6 +1,6 @@
 export class Trie {
   /** @type {string | Uint8Array} */
-  chars = ''
+  chars = new Uint8Array(0)
   value = /**@type {any}*/(null)
   /**
    * @returns {Trie | undefined | null}

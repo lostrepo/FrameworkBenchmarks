@@ -1,6 +1,6 @@
 import { Trie } from './trie.js'
 
-const { ptr, latin1_decode } = lo
+const { get_address, latin1_decode } = lo
 
 const encoder = new TextEncoder()
 
@@ -34,6 +34,8 @@ export class TrieBasedRouter {
   }
   /** @type {AddStringRouteHandler} */
   get_u8(path, fn){
+    this.get_u8_experimental(path, fn)
+
     const GET_u8 = encoder.encode('GET')
     this.trie.insert(GET_u8, [], true)
     const GET_node = this.trie.findNode(GET_u8)
@@ -46,8 +48,27 @@ export class TrieBasedRouter {
     const fns = this.trie.findNode(method)?.findNode(path)?.value
     if (!fns) {
       return this.find_in_wildcards(
-        latin1_decode(ptr(method).ptr, method.byteLength),
-        latin1_decode(ptr(path).ptr, path.byteLength))
+        latin1_decode(get_address(method), method.byteLength),
+        latin1_decode(get_address(path), path.byteLength))
+    }
+    return {
+      fns: fns,
+      parts: {}
+    }
+  }
+  /** @type {AddStringRouteHandler} */
+  get_u8_experimental(path, fn){
+    const u8 = encoder.encode(`GET ${path}`)
+    const node = this.trie.findNode(u8)
+    this.trie.insert(u8, [...node?.value || [], fn], true)
+  }
+  /** @type {(method_n_path: Uint8Array) => FindRouteHandlerResponse} */
+  find_u8_experimental(method_n_path){
+    const fns = this.trie.findNode(method_n_path)?.value
+    if (!fns) {
+      const [method, path] = latin1_decode(get_address(method_n_path),
+        method_n_path.byteLength).split(' ')
+      return this.find_in_wildcards(method, path)
     }
     return {
       fns: fns,
