@@ -29,12 +29,20 @@ const sJSON = sjs({ message: attr('string') })
 
 
 new App()
-  .get('/plaintext', respond => {
-    respond(200, `server: lo2\r\ncontent-type: ${textCT}\r\n\r\n`, message)
+  .get('/plaintext', socket => {
+    socket.push_http_frame({
+      status_code: 200,
+      headers: `server: lo2\r\ncontent-type: ${textCT}\r\n\r\n`,
+      body: message
+    })
     return 0
   })
-  .get('/json', respond => {
-    respond(200, `server: lo2\r\ncontent-type: ${jsonCT}\r\n\r\n`, sJSON(json))
+  .get('/json', socket => {
+    socket.push_http_frame({
+      status_code: 200,
+      headers: `server: lo2\r\ncontent-type: ${jsonCT}\r\n\r\n`,
+      body: sJSON(json)
+    })
     return 0
   })
   .listen(8080, '0.0.0.0', console.error)

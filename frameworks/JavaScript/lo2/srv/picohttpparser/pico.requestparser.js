@@ -27,7 +27,7 @@ export class RequestParser {
     this.#ctx_ptr = get_address(ctx)
   }
 
-   parse(len=this.#rb_size){
+   parse = (len=this.#rb_size) => {
      this.#ctx[10] = this.#ctx[12]
      const ptr = this.#ctx_ptr
      return parse_request(this.#rb_ptr,len,ptr+0,ptr+8,ptr+16,ptr+24,ptr+32,ptr+56,ptr+40,0)

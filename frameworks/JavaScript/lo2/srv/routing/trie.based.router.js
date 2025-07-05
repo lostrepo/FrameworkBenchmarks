@@ -4,7 +4,8 @@ const { get_address, latin1_decode } = lo
 
 const encoder = new TextEncoder()
 
-/**@typedef {(respond: (status: number, headers: string, body: string) => void, params: Record<string, string>) => -1 | 0} RouteHandler */
+/**@typedef {{ status_code: number, headers: string, body: string }} RouteHandlerParams */
+/**@typedef {(socket: import('../apps/app.js').AppSocket, params: Record<string, string>) => -1 | 0} RouteHandler */
 /**@typedef {{ path: string, parts: string[], fns: RouteHandler[] }[]} WildcardPathObjects */
 /**@typedef {(path: string, fn: RouteHandler) => void} AddStringRouteHandler */
 /**@typedef {{ fns: RouteHandler[], parts: Record<string, string> }} FindRouteHandlerResponse */

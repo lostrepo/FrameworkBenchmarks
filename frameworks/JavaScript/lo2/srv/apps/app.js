@@ -11,51 +11,59 @@ import { Socket } from '../sockets/socket.js'
 
 const { utf8_encode_into_ptr, get_address } = lo
 
+export class AppSocket extends Socket {
+  /**@type {import('../routing/trie.based.router.js').RouteHandlerParams[]}*/
+  #http_frames = []
+  get http_frames(){ return this.#http_frames }
+  get is_app_socket(){ return true }
+
+  push_http_frame = (/** @type {import('../routing/trie.based.router.js').RouteHandlerParams} */ frame) => this.#http_frames.push(frame)
+
+  /**@type {AppSocket[]}*/
+  static sockets = /**@type {any}*/(Socket.sockets)
+}
+
+export class AppServer extends Server {
+  /**
+   * @param {any} loop
+   * @param {number} fd
+   * @param {number | undefined} parser_buf_size
+   * @param {number | undefined} parser_max_headers
+   */
+  create_socket(loop, fd, parser_buf_size, parser_max_headers){
+    return new AppSocket(loop, fd, parser_buf_size, parser_max_headers)
+  }
+}
+
 export class App {
   // TODO: should try using something better for searching byte array matches
   #router = new TrieBasedRouter()
-  #on_socket_readable = on_socket_readable.bind(null, (socket, parsed_bytes) => {
+  #on_socket_readable = on_socket_readable.bind(null, ((socket, parsed_bytes) => {
     /** @type {0 | -1} */
     let rc = -1
-    const { method_n_path_u8_view} = socket.parser
-    const { parts, fns: [fn] } = this.#router.find_u8_experimental(method_n_path_u8_view)
+    const { parts, fns: [fn] } = this.#router.find_u8_experimental(socket.parser.method_n_path_u8_view)
     switch (fn) {
       case undefined:
       break
       default:
-      rc = fn(this.#append_http_frame.bind(this, socket.fd), parts)
+      rc = fn(socket, parts)
       break
     }
     return rc
-  })
+  }))
   get on_socket_readable(){ return this.#on_socket_readable }
   set on_socket_readable(on_socket_readable){ this.#on_socket_readable = on_socket_readable }
   get router(){ return this.#router }
-  /**@type {Map<string, Server>} */
+  /**@type {Map<string, AppServer>} */
   #servers = new Map()
   #loop = loop
   get loop(){ return this.#loop }
-  #max_fds = 8 * 64 * 64
-  /**@type {{ status_code: number, headers: string, body: string}[][]}*/
-  #http_write_queue = Array.from({ length: this.#max_fds }).map(() => [])
-  /**
-   * @param {number} fd
-   */
-  #append_http_frame(fd, status_code = 200, headers = '', body = ''){
-    // TODO: found out that fd is not a Smi for some reason
-    // and this.#http_write_queue[fd] access is deoptimized
-    // but it's not the most expensive part so maybe will take a look later
-    this.#http_write_queue[fd].push({
-      status_code,
-      headers,
-      body
-    })
-  }
   #max_frame_size = 8 * 1024 * 1024
   #buf = new Uint8Array(this.#max_frame_size)
   #buf_ptr = get_address(this.#buf)
   #loop_started = false
-  #content_length_value_size = Number.MAX_SAFE_INTEGER.toString().length
+  #content_length_value_size = (this.#max_frame_size).toString().length
+  // #content_length_value_size = Number.MAX_SAFE_INTEGER.toString().length
   // TODO: provide separate class instance to build static http_frame_header_prefix buffer
   #http_frame_header_prefix = new TextEncoder().encode(`HTTP/1.1 200\r
 date: ${(new Date()).toUTCString()}\r
@@ -77,20 +85,14 @@ content-length: ${'0'.padEnd(this.#content_length_value_size, ' ')}\r
 
   #update_date_field = () =>
     utf8_encode_into_ptr((new Date()).toUTCString(), this.#date_field_ptr)
-  // #last_status_code_value = 200
   #update_status_code_field = (status_code = 200) => {
-    // if (status_code === this.#last_status_code_value) return
-    // this.#last_status_code_value = status_code
     const buf = this.#status_code_field_buf
     buf[0] = (status_code / 100 | 0) + 48;
     buf[1] = (status_code % 100 / 10 | 0) + 48;
     buf[2] = (status_code % 10) + 48;
   }
-  // #last_content_length_value = 0
   #last_content_length_len = 1
   #update_content_length_field = (content_length = 0) => {
-    // if (content_length === this.#last_content_length_value) return
-    // this.#last_content_length_value = content_length
     const buf = this.#content_length_field_buf
     let n = content_length
     const len = n < 1e1 ? 1 : n < 1e2 ? 2 : n < 1e3 ? 3 : n < 1e4 ? 4 :
@@ -136,44 +138,41 @@ content-length: ${'0'.padEnd(this.#content_length_value_size, ' ')}\r
   // static route_total_time = 0
   // static route_call_count = 0
   #write_frames(){
-    const sockets = Socket.sockets
+    const sockets = AppSocket.sockets
     const max_fd = sockets.length
     const buf_ptr = this.#buf_ptr
-    const write_queue = this.#http_write_queue
     const header_prefix_size = this.#http_frame_header_prefix_size
     const header_prefix_buf = this.#http_frame_header_prefix
     const buf = this.#buf
+    const update_status_code_field = this.#update_status_code_field
+    const update_content_length_field = this.#update_content_length_field
+    const set_header_prefix = buf.set.bind(buf, header_prefix_buf)
 
     // const start = lo.core.times(App.time)
     for (let fd = 0; fd < max_fd; fd++) {
-      const arr = write_queue[fd]
+      const socket = sockets[fd]
+      if (!socket || !socket.is_app_socket || !socket.http_frames.length) continue
+      const arr = socket.http_frames
       const length = arr.length
-      switch(length){
-        case 0:
-        break
-        default:{
-          const socket = sockets[fd]
-          let size = 0
-          for (let i = 0; i < length; i++) {
-            const { body, headers, status_code } = arr[i]
-            const header_size = header_prefix_size +
-              utf8_encode_into_ptr(headers, buf_ptr + size + header_prefix_size)
-            const body_size = utf8_encode_into_ptr(body, buf_ptr + size + header_size)
+      let size = 0
+      for (let i = 0; i < length; i++) {
+        const { status_code, headers, body } = arr[i]
+        utf8_encode_into_ptr(headers, buf_ptr + size + header_prefix_size)
+        const header_size = header_prefix_size + headers.length
+        const body_size = utf8_encode_into_ptr(body, buf_ptr + size + header_size)
 
-            this.#update_status_code_field(status_code)
-            this.#update_content_length_field(body_size)
-            // TODO: provide fast way to remove static headers (probably TypedArray.copyWithin)
-            buf.set(header_prefix_buf, size)
+        update_status_code_field(status_code)
+        update_content_length_field(body_size)
+        // TODO: provide fast way to remove static headers (probably TypedArray.copyWithin)
+        set_header_prefix(size)
 
-            size += body_size + header_size
-          }
-          arr.length = 0
-          // TODO: if write fails/is partial store buffer in some array by fd as index
-          // TODO: track fd buffered amount (probably close overoffending fds)
-          // TODO: track total buffered amount (find and close overoffending fds)
-          socket.write(buf_ptr, size)
-        break}
+        size += body_size + header_size
       }
+      arr.length = 0
+      // TODO: if write fails/is partial store buffer in some array by fd as index
+      // TODO: track fd buffered amount (probably close overoffending fds)
+      // TODO: track total buffered amount (find and close overoffending fds)
+      socket.write(buf_ptr, size)
     }
     // App.write_frames_total_time += lo.core.times(App.time) - start
     // App.write_frames_call_count++
@@ -194,7 +193,7 @@ content-length: ${'0'.padEnd(this.#content_length_value_size, ' ')}\r
    */
   listen(port, address = '127.0.0.1', on_error = noop){
     this.#servers.set(port + address,
-      new Server(address, port, this.#loop, this.on_socket_readable, on_error))
+      new AppServer(address, port, this.#loop, this.on_socket_readable, on_error))
     return this
   }
   /**

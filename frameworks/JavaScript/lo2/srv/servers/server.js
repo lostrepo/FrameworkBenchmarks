@@ -108,7 +108,7 @@ export class Server {
    */
   static readable (server) {
     const { sockaddr_in, sockaddr_in_dv, sockaddr_in_len, //incoming_cpu,
-      on_socket_readable, fd, loop, parser_buf_size, parser_max_headers
+      on_socket_readable, create_socket, fd, loop, parser_buf_size, parser_max_headers
      } = server
     const sock_fd = accept(fd, sockaddr_in.ptr, sockaddr_in_len.ptr)
 
@@ -117,7 +117,7 @@ export class Server {
       assert(sockaddr_in_len[0] === sockaddr_in.byteLength)
       // assert(!setsockopt(sock_fd, SOL_SOCKET, SO_INCOMING_CPU, incoming_cpu, 32))
       // assert(!setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, net_on, 32))
-      const sock = new Socket(loop, sock_fd, parser_buf_size, parser_max_headers)
+      const sock = create_socket(loop, sock_fd, parser_buf_size, parser_max_headers)
       const port = sockaddr_in_dv.getUint16(2)
       const ip = sockaddr_in_dv.getUint32(4)
       assert(port + ip)
@@ -130,6 +130,16 @@ export class Server {
     }
     if (lo.errno === Blocked) return
     close(sock_fd)
+  }
+
+  /**
+   * @param {Loop} loop
+   * @param {number} fd
+   * @param {number | undefined} parser_buf_size
+   * @param {number | undefined} parser_max_headers
+   */
+  create_socket(loop, fd, parser_buf_size, parser_max_headers){
+    return new Socket(loop, fd, parser_buf_size, parser_max_headers)
   }
 
   /**

@@ -3,8 +3,8 @@ import { Loop } from 'lib/loop.js'
 
 // TODO: generate handler with relevant steps
 /**
- * @param {import('../sockets/socket.js').Socket} socket
- * @param {(socket: import('../sockets/socket.js').Socket, parsed_bytes: i32) => 0 | -1} on_request
+ * @param {import('./app.js').AppSocket} socket
+ * @param {(socket: import('./app.js').AppSocket, parsed_bytes: i32) => 0 | -1} on_request
  */
 export function on_socket_readable (on_request, socket) {
   /** @type {0 | -1} */
@@ -18,8 +18,7 @@ export function on_socket_readable (on_request, socket) {
       rc = lo.errno === Loop.Blocked ? 0 : -1
     break
     default: {
-      const { parser } = socket
-      const parse = parser.parse.bind(parser)
+      const { parse } = socket.parser
       do {
         rc = -1
         const parsed_bytes = parse(bytes_to_parse)

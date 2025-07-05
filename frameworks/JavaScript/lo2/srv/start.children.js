@@ -4,8 +4,8 @@ const { setenv, cstr, ptr, library, args,
   core: { waitpid, WNOHANG, execvp, sysconf, fork }
  } = lo
 const _SC_NPROCESSORS_ONLN = library('system')?.system._SC_NPROCESSORS_ONLN
-const cpus_online = CPUS
-  || Math.max(1, _SC_NPROCESSORS_ONLN ? +sysconf(_SC_NPROCESSORS_ONLN) : 1)
+const real_cpus_online = Math.max(1, _SC_NPROCESSORS_ONLN ? +sysconf(_SC_NPROCESSORS_ONLN) : 1)
+const cpus_online = CPUS || Math.max(real_cpus_online / 2 |0, 1)
 const instances = new Map();
 
 
@@ -84,4 +84,26 @@ function fork_proc(env){
   const [_, pid] = exec_env(args[0], args.slice(1),//.concat(['--log-all']),
     Object.keys(env).map((k) => [k, env[k]]))
   instances.set(pid, env)
+
+  const cpus = +env.CPUS || 0
+  const cpu = +env.CHILD_INDEX || 0
+  if (cpu < cpus) {
+    pin_to_cpus(pid, [cpu, !CPUS && (real_cpus_online > cpus + cpu) ? cpus + cpu : cpu])
+  }
+}
+
+function pin_to_cpus(pid, cpus){
+  const { setaffinity, struct_cpu_set_t_size } = lo.core
+  const cpu_set = ptr(new Uint8Array(struct_cpu_set_t_size))
+
+  for (let i = 0; i < cpus.length; i++) {
+    const cpu = cpus[i]
+    const index_to_flip = Math.floor(cpu / 8)
+    const bit_to_flip = cpu % 8
+    cpu_set[index_to_flip] |= 1 << bit_to_flip
+  }
+
+  const rc = setaffinity(pid, struct_cpu_set_t_size, cpu_set.ptr)
+  console.log(`setaffinity to cpus ${cpus} for pid ${pid}: ${rc === -1 ? `error ${lo.errno}` : 'success'}`)
+  return rc
 }
